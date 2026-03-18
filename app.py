@@ -104,7 +104,7 @@ section[data-testid="stSidebar"] {
 # =========================================
 # Your paths
 # =========================================
-MODEL_PATH = "best_model_MobileNet.h5"
+MODEL_PATH = "best_model_MobileNet.keras"
 IMAGE_DIR = "Images"
 IMG_SIZE = (224, 224)
 
