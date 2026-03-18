@@ -5,7 +5,6 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 from gtts import gTTS
-import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
@@ -144,17 +143,6 @@ gesture_info = {
     "you": {"display": "You", "meaning_ar": "أنت", "meaning_en": "You", "speak_text_en": "You", "speak_text_ar": "أنت"},
     "your": {"display": "Your", "meaning_ar": "لك", "meaning_en": "Your", "speak_text_en": "Your", "speak_text_ar": "لك"}
 }
-
-# =========================================
-# Image paths
-# Put your images inside N:\ASLNet\Images
-# Example:
-# N:\ASLNet\Images\hello.png
-# N:\ASLNet\Images\ThankYou.png
-# =========================================
-
-
-# If your images are jpg instead of png, replace the block above with:
 gesture_image_paths = {
     name: os.path.join(IMAGE_DIR, f"{name}.jpg")
     for name in class_names
@@ -164,7 +152,11 @@ gesture_image_paths = {
 # Load model
 # =========================================
 @st.cache_resource
-tf.keras.models.load_model(MODEL_PATH)
+def load_asl_model():
+    return load_model(MODEL_PATH)
+
+model = load_asl_model()
+
 # =========================================
 # Helpers
 # =========================================
