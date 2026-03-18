@@ -5,7 +5,7 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 from gtts import gTTS
-
+import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
@@ -164,7 +164,7 @@ gesture_image_paths = {
 # Load model
 # =========================================
 @st.cache_resource
-tensorflow.keras.models.load_model(MODEL_PATH)
+tf.keras.models.load_model(MODEL_PATH)
 # =========================================
 # Helpers
 # =========================================
