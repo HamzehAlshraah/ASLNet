@@ -164,7 +164,7 @@ gesture_image_paths = {
 # Load model
 # =========================================
 @st.cache_resource
-load_model(MODEL_PATH)
+tensorflow.keras.models.load_model(MODEL_PATH)
 # =========================================
 # Helpers
 # =========================================
