@@ -164,11 +164,7 @@ gesture_image_paths = {
 # Load model
 # =========================================
 @st.cache_resource
-def load_asl_model():
-    return load_model(MODEL_PATH)
-
-model = load_asl_model()
-
+load_model(MODEL_PATH)
 # =========================================
 # Helpers
 # =========================================
