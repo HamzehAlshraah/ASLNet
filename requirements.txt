@@ -1,0 +1,5 @@
+streamlit
+tensorflow
+gtts
+numpy
+io
