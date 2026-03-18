@@ -5,6 +5,7 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 from gtts import gTTS
+
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
@@ -103,8 +104,8 @@ section[data-testid="stSidebar"] {
 # =========================================
 # Your paths
 # =========================================
-MODEL_PATH = r"N:\ASLNet\best_model_MobileNet.keras"
-IMAGE_DIR = r"N:\ASLNet\Images"
+MODEL_PATH = "best_model_MobileNet.keras"
+IMAGE_DIR = "Images"
 IMG_SIZE = (224, 224)
 
 # =========================================
@@ -151,16 +152,13 @@ gesture_info = {
 # N:\ASLNet\Images\hello.png
 # N:\ASLNet\Images\ThankYou.png
 # =========================================
-gesture_image_paths = {
-    name: os.path.join(IMAGE_DIR, f"{name}.png")
-    for name in class_names
-}
+
 
 # If your images are jpg instead of png, replace the block above with:
-# gesture_image_paths = {
-#     name: os.path.join(IMAGE_DIR, f"{name}.jpg")
-#     for name in class_names
-# }
+gesture_image_paths = {
+    name: os.path.join(IMAGE_DIR, f"{name}.jpg")
+    for name in class_names
+}
 
 # =========================================
 # Load model
