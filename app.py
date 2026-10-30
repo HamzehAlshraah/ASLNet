@@ -101,7 +101,7 @@ section[data-testid="stSidebar"] {
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "model.onnx")
 MODEL_ARCHIVE = os.path.join(BASE_DIR, "aslnet_v3.zip")
-IMAGE_DIR = r"S:\ASLNet\Images"
+IMAGE_DIR = os.path.join(BASE_DIR, "Images")
 IMG_SIZE = (224, 224)
 
 class_names = ["BestWish", "ThankYou", "a", "am", "are", "bad", "bye", "e",
