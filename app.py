@@ -1,12 +1,13 @@
 import os
+import json
+import zipfile
 from io import BytesIO
 
 import numpy as np
 import streamlit as st
 from PIL import Image
 from gtts import gTTS
-from tensorflow.keras.models import load_model
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+import onnxruntime as ort
 
 # =========================================
 # Page config
@@ -28,12 +29,10 @@ st.markdown("""
         radial-gradient(circle at top left, rgba(34,197,94,0.12), transparent 30%),
         radial-gradient(circle at top right, rgba(59,130,246,0.10), transparent 25%),
         linear-gradient(180deg, #07111f 0%, #0b1220 100%);
-    color: #f8fafc;
-}
+    color: #f8fafc;}
 
 .block-container {
     max-width: 1200px;
-    padding-top: 2rem;
     padding-bottom: 2rem;
 }
 
@@ -99,26 +98,16 @@ section[data-testid="stSidebar"] {
 }
 </style>
 """, unsafe_allow_html=True)
-
-# =========================================
-# Your paths
-# =========================================
-MODEL_PATH = "best_model_MobileNet.keras"
-IMAGE_DIR = "Images"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "model.onnx")
+MODEL_ARCHIVE = os.path.join(BASE_DIR, "aslnet_v3.zip")
+IMAGE_DIR = r"S:\ASLNet\Images"
 IMG_SIZE = (224, 224)
 
-# =========================================
-# Class names
-# =========================================
-class_names = [
-    "BestWish", "ThankYou", "a", "am", "are", "bad", "bye", "e",
+class_names = ["BestWish", "ThankYou", "a", "am", "are", "bad", "bye", "e",
     "fine", "good", "hello", "how", "i", "is", "o", "the",
-    "u", "what", "when", "who", "you", "your"
-]
+    "u", "what", "when", "who", "you", "your"]
 
-# =========================================
-# Sign info
-# =========================================
 gesture_info = {
     "BestWish": {"display": "Best Wish", "meaning_ar": "أطيب الأمنيات", "meaning_en": "Best wishes", "speak_text_en": "Best wishes", "speak_text_ar": "أطيب الأمنيات"},
     "ThankYou": {"display": "Thank You", "meaning_ar": "شكراً", "meaning_en": "Thank you", "speak_text_en": "Thank you", "speak_text_ar": "شكرا"},
@@ -143,80 +132,63 @@ gesture_info = {
     "you": {"display": "You", "meaning_ar": "أنت", "meaning_en": "You", "speak_text_en": "You", "speak_text_ar": "أنت"},
     "your": {"display": "Your", "meaning_ar": "لك", "meaning_en": "Your", "speak_text_en": "Your", "speak_text_ar": "لك"}
 }
-gesture_image_paths = {
-    name: os.path.join(IMAGE_DIR, f"{name}.jpg")
-    for name in class_names
-}
-
-# =========================================
-# Load model
-# =========================================
+gesture_image_paths = {name: os.path.join(IMAGE_DIR, f"{name}.jpg")
+                       for name in class_names}
 @st.cache_resource
 def load_asl_model():
-    return load_model(MODEL_PATH)
+    if os.path.isfile(MODEL_PATH):
+        with open(os.path.join(BASE_DIR, "labels.json"), encoding="utf-8") as f:
+            labels = json.load(f)
+        model_source = MODEL_PATH
+    else:
+        with zipfile.ZipFile(MODEL_ARCHIVE) as archive:
+            model_source = archive.read("model.onnx")
+            labels = json.loads(archive.read("labels.json"))
+    session = ort.InferenceSession(model_source, providers=["CPUExecutionProvider"])
+    return session, labels
 
-model = load_asl_model()
-
-# =========================================
-# Helpers
-# =========================================
+model, class_names = load_asl_model()
 def preprocess_pil_image(image: Image.Image):
     image = image.convert("RGB")
     image = image.resize(IMG_SIZE)
     arr = np.array(image).astype(np.float32)
-    arr = preprocess_input(arr)
-    arr = np.expand_dims(arr, axis=0)
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    arr = (arr / 255.0 - mean) / std
+    arr = np.transpose(arr, (2, 0, 1))[None].astype(np.float32)
     return arr
 
 def predict_image(image: Image.Image):
     x = preprocess_pil_image(image)
-    preds = model.predict(x, verbose=0)[0]
-
+    logits = model.run(None, {model.get_inputs()[0].name: x})[0][0]
+    exp_logits = np.exp(logits - np.max(logits))
+    preds = exp_logits / np.sum(exp_logits)
     pred_idx = int(np.argmax(preds))
     pred_conf = float(preds[pred_idx])
-
     raw_name = class_names[pred_idx]
-    info = gesture_info.get(raw_name, {
-        "display": raw_name,
-        "meaning_ar": raw_name,
-        "meaning_en": raw_name,
-        "speak_text_en": raw_name,
-        "speak_text_ar": raw_name
-    })
+    info = gesture_info.get(raw_name,{"display": raw_name,"meaning_ar": raw_name,
+        "meaning_en": raw_name,"speak_text_en": raw_name,"speak_text_ar": raw_name})
 
     top3_idx = np.argsort(preds)[::-1][:3]
     top3 = []
     for i in top3_idx:
         cls = class_names[int(i)]
-        inf = gesture_info.get(cls, {
-            "display": cls,
-            "meaning_ar": cls,
-            "meaning_en": cls,
-            "speak_text_en": cls,
-            "speak_text_ar": cls
-        })
+        inf = gesture_info.get(cls,{"display": cls,"meaning_ar": cls,"meaning_en": cls,
+            "speak_text_en": cls,"speak_text_ar": cls})
         top3.append((cls, inf["display"], float(preds[int(i)])))
 
     return raw_name, info, pred_conf, top3
-
 def text_to_speech_bytes(text, lang="en"):
     tts = gTTS(text=text, lang=lang)
     audio_buffer = BytesIO()
     tts.write_to_fp(audio_buffer)
     audio_buffer.seek(0)
     return audio_buffer
-
 def image_exists(path):
     return os.path.exists(path) and os.path.isfile(path)
-
-# =========================================
-# Language
-# =========================================
-language = st.radio(
-    "Choose Language / اختر اللغة",
-    ["English", "العربية"],
-    horizontal=True
-)
+for i in range (2):
+    st.write("")
+language = st.radio("Choose Language / اختر اللغة",["English", "العربية"],horizontal=True)
 
 if language == "العربية":
     page_title = "تطبيق معنى إشارات اليد"
@@ -272,17 +244,12 @@ else:
     play_en_audio = "🔊 Play English Audio"
     play_ar_audio = "🔊 Play Arabic Audio"
     no_input_message = "Capture or upload an image first to see the result."
-
-# =========================================
-# Sidebar
-# =========================================
 with st.sidebar:
     st.markdown(f"## 🧠 {sidebar_title}")
     st.write(sidebar_desc)
     st.write("**Model:** MobileNetV2")
     st.write("**Classes:** 22")
     st.write("**Input Size:** 224 x 224")
-
     st.markdown(f"### 📘 {how_to_use}")
     if language == "العربية":
         st.markdown("""
@@ -293,52 +260,30 @@ with st.sidebar:
         - شغّل الصوت
         """)
     else:
-        st.markdown("""
-        - Choose camera or image upload
+        st.markdown("""- Choose camera or image upload
         - Capture the sign or upload it
         - View the predicted sign
         - Read the meaning
-        - Play the audio
-        """)
-
+        - Play the audio""")
     st.markdown(f"### 🏷️ {supported_signs}")
-
     with st.expander("Show sign list" if language == "English" else "عرض قائمة الإشارات", expanded=False):
         for cls in class_names:
             info = gesture_info[cls]
             img_path = gesture_image_paths.get(cls, "")
-
             c1, c2 = st.columns([1, 3])
-
             with c1:
                 if image_exists(img_path):
                     st.image(img_path, width=42)
                 else:
                     st.markdown("🖼️")
-
             with c2:
                 st.markdown(f"**{info['display']}**")
                 st.caption(info["meaning_en"] if language == "English" else info["meaning_ar"])
-
-# =========================================
-# Header
-# =========================================
 st.markdown(f'<div class="hero-title">{page_title}</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="hero-subtitle">{page_subtitle}</div>', unsafe_allow_html=True)
-
-# =========================================
-# Input method
-# =========================================
-input_method = st.radio(
-    input_method_label,
-    input_options,
-    horizontal=True
-)
-
+input_method = st.radio(input_method_label,input_options,horizontal=True)
 uploaded_or_captured_image = None
-
 left, right = st.columns([1.05, 0.95], gap="large")
-
 with left:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
 
@@ -347,13 +292,9 @@ with left:
         uploaded_or_captured_image = st.camera_input(camera_label)
     else:
         st.subheader(f"🖼️ {upload_title}")
-        uploaded_or_captured_image = st.file_uploader(
-            uploader_label,
-            type=["jpg", "jpeg", "png"]
-        )
+        uploaded_or_captured_image = st.file_uploader(uploader_label,type=["jpg", "jpeg", "png"])
 
     st.markdown('</div>', unsafe_allow_html=True)
-
 with right:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader(f"ℹ️ {notes_title}")
@@ -361,10 +302,6 @@ with right:
     st.write(notes_2)
     st.write(notes_3)
     st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================================
-# Results
-# =========================================
 if uploaded_or_captured_image is not None:
     image = Image.open(uploaded_or_captured_image)
     raw_name, info, conf, top3 = predict_image(image)
@@ -383,16 +320,11 @@ if uploaded_or_captured_image is not None:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.subheader(f"🤖 {predicted_sign_title}")
 
-        st.markdown(
-            f"""
-            <div class="prediction-pill">
+        st.markdown(f"""<div class="prediction-pill">
                 <div>{predicted_sign_title}</div>
                 <div class="prediction-value">{info["display"]}</div>
                 <div>Confidence: {conf:.2%}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+            </div>""",unsafe_allow_html=True)
 
         st.markdown("<div class='soft-divider'></div>", unsafe_allow_html=True)
 
@@ -423,6 +355,5 @@ if uploaded_or_captured_image is not None:
                 st.audio(audio_bytes, format="audio/mp3")
 
         st.markdown('</div>', unsafe_allow_html=True)
-
 else:
     st.info(no_input_message)
