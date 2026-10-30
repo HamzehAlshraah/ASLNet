@@ -3,3 +3,4 @@ onnxruntime
 gTTS
 numpy
 Pillow
+mediapipe==1.2.0
