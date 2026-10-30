@@ -1,5 +1,5 @@
 streamlit
-tensorflow
-keras
-gtts
+onnxruntime
+gTTS
 numpy
+Pillow
