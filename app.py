@@ -1,11 +1,13 @@
 import os
 import json
 import zipfile
+import threading
+import mediapipe as mp
 from io import BytesIO
 
 import numpy as np
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageDraw, ImageOps
 from gtts import gTTS
 import onnxruntime as ort
 
@@ -148,6 +150,55 @@ def load_asl_model():
     return session, labels
 
 model, class_names = load_asl_model()
+@st.cache_resource
+def load_hand_detector():
+    options = mp.tasks.vision.HandLandmarkerOptions(
+        base_options=mp.tasks.BaseOptions(
+            model_asset_path=os.path.join(BASE_DIR, "hand_landmarker.task")
+        ),
+        running_mode=mp.tasks.vision.RunningMode.IMAGE,
+        num_hands=2,
+        min_hand_detection_confidence=0.5,
+        min_hand_presence_confidence=0.5,
+    )
+    return mp.tasks.vision.HandLandmarker.create_from_options(options), threading.Lock()
+
+
+def crop_detected_hands(image: Image.Image):
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    detector, lock = load_hand_detector()
+    mp_image = mp.Image(
+        image_format=mp.ImageFormat.SRGB,
+        data=np.asarray(image, dtype=np.uint8).copy(),
+    )
+    with lock:
+        result = detector.detect(mp_image)
+    if not result.hand_landmarks:
+        return None, image
+
+    width, height = image.size
+    points = [(p.x * width, p.y * height)
+              for hand in result.hand_landmarks for p in hand]
+    xs, ys = zip(*points)
+    # Keep both hands together and leave room around fingers and wrist.
+    margin = max(12, int(max(max(xs) - min(xs), max(ys) - min(ys)) * 0.20))
+    box = (
+        max(0, int(np.floor(min(xs))) - margin),
+        max(0, int(np.floor(min(ys))) - margin),
+        min(width, int(np.ceil(max(xs))) + margin),
+        min(height, int(np.ceil(max(ys))) + margin),
+    )
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return None, image
+    cropped = image.crop(box)
+    annotated = image.copy()
+    ImageDraw.Draw(annotated).rectangle(
+        (box[0], box[1], box[2] - 1, box[3] - 1),
+        outline=(34, 197, 94), width=max(2, min(width, height) // 150),
+    )
+    return cropped, annotated
+
+
 def preprocess_pil_image(image: Image.Image):
     image = image.convert("RGB")
     image = image.resize(IMG_SIZE)
@@ -303,8 +354,17 @@ with right:
     st.write(notes_3)
     st.markdown('</div>', unsafe_allow_html=True)
 if uploaded_or_captured_image is not None:
-    image = Image.open(uploaded_or_captured_image)
-    raw_name, info, conf, top3 = predict_image(image)
+    image = ImageOps.exif_transpose(Image.open(uploaded_or_captured_image)).convert("RGB")
+    hand_image, annotated_image = crop_detected_hands(image)
+    if hand_image is None:
+        st.image(image, use_container_width=True)
+        st.warning(
+            "لم يتم العثور على يد واضحة. أظهر اليد كاملة مع إضاءة جيدة ثم حاول مجددًا."
+            if language == "العربية" else
+            "No clear hand detected. Show the whole hand in good lighting and try again."
+        )
+        st.stop()
+    raw_name, info, conf, top3 = predict_image(hand_image)
 
     st.markdown(f"## {result_title}")
 
@@ -313,7 +373,12 @@ if uploaded_or_captured_image is not None:
     with c1:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.subheader(f"🖼️ {captured_image_title}")
-        st.image(image, use_container_width=True)
+        st.image(annotated_image, use_container_width=True)
+        st.image(
+            hand_image,
+            caption="الصورة المرسلة للموديل" if language == "العربية" else "Image sent to the model",
+            use_container_width=True,
+        )
         st.markdown('</div>', unsafe_allow_html=True)
 
     with c2:
